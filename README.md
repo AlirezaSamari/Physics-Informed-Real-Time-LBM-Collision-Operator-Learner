@@ -1,2 +1,2 @@
-# Real-Time-LBM-Collision-Operator-Learning
-A Framework to Online Learning the LBM Collision Operator via Neural Network.
+# A Framework for Online Learning of the Lattice Boltzmann Method's Collision Operator Using Neural Networks
+
