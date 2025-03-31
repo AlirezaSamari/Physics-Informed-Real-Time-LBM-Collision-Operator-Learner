@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
