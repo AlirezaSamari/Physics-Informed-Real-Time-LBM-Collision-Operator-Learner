@@ -5,7 +5,7 @@
 ## Overview
 
 This document describes an algorithm that integrates online learning into the Lattice Boltzmann Method (LBM) by leveraging a neural network. The approach combines numerical simulation with a deep learning model, enabling the collision operator in the LBM to be learned and updated in real time.
-
+![](plot.png)
 ## 1. Initialization
 
 ### Grid and Physical Parameters
