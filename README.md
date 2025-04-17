@@ -17,7 +17,8 @@ An adaptive, physics-informed framework integrating online learning into the Lat
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/lbm-collision-learner.git
+   git clone this is git repository:
+   https://github.com/AlirezaSamari/Real-Time-LBM-Collision-Operator-Learning.git
    cd lbm-collision-learner
    ```
 
