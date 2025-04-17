@@ -1,13 +1,13 @@
 """
 Author: Alireza Samari
 """
+
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from matplotlib import cm
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Model Definitions
 
 class AdaptiveActivation(nn.Module):
     def __init__(self):
@@ -60,8 +60,7 @@ class AdaptiveResNet(nn.Module):
 model = AdaptiveResNet(input_size=9, output_size=9, residual_blocks_neurons=[50])
 model.to(device)
 
-
-# Simulation Parameters and Initialization
+# Simulation Parameters
 
 maxIter = 50000
 nx, ny = 100, 100
@@ -71,9 +70,9 @@ tau = 0.5 + nulb / (cs**2)
 rho0 = 5.0
 u0 = 0.01
 Re = (u0 * ny) / nulb
-
 fin = torch.zeros((9, nx, ny), dtype=torch.float32, device=device)
 
+# Lattice constants as tensors
 v = torch.tensor([
     [0, 0], [1, 0], [0, 1], [-1, 0], [0, -1],
     [1, 1], [-1, 1], [-1, -1], [1, -1]
@@ -84,6 +83,7 @@ t = torch.tensor([4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36],
 
 opp = torch.tensor([0, 3, 4, 1, 2, 7, 8, 5, 6], dtype=torch.int64, device=device)
 
+# Solid boundary
 def create_solid(nx, ny, device):
     solid = torch.zeros((nx, ny), dtype=torch.bool, device=device)
     solid[:, 0] = True
@@ -103,7 +103,7 @@ def macroscopic(fin):
     u = u / rho
     return rho, u
 
-# Equilibrium distribution function
+# Equilibrium
 def equilibrium(rho, u):
     usqr = (3/2) * (u[0]**2 + u[1]**2)
     feq = torch.zeros((9, nx, ny), dtype=torch.float32, device=device)
@@ -112,6 +112,21 @@ def equilibrium(rho, u):
         feq[i] = rho * t[i] * (1 + uv + 0.5 * uv**2 - usqr)
     return feq
 
+
+# Physics-Informed Loss (Boltzmann Equation)
+def boltzmann_loss(fin_hat, fin_prev, feq, v, tau):
+    # Advection term
+    advection_term = torch.zeros_like(fin_hat)
+    for i in range(9):
+        advection_term[i] = (torch.roll(fin_hat[i], shifts=(v[i, 0].item(), v[i, 1].item()), dims=(0, 1)) - fin_hat[i])
+
+    # Collision term
+    collision_term = (feq - fin_hat) / tau
+    
+
+    loss = torch.mean(advection_term ** 2) + torch.mean(collision_term ** 2)
+    return loss
+
 # Initialize fin
 for i in range(9):
     fin[i] = t[i] * rho0
@@ -119,75 +134,74 @@ for i in range(9):
 rho = torch.ones((nx, ny), dtype=torch.float32, device=device) * rho0
 u = torch.zeros((2, nx, ny), dtype=torch.float32, device=device)
 
+# Create meshgrid
 x = torch.arange(0, nx)
 y = torch.arange(0, ny)
 X, Y = torch.meshgrid(x, y, indexing='ij')
 
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.8)
 
-num_training_points = 1000
-epochs = 100
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.5)
 
 # Simulation and Training Loop
-
+training_step = 10
+epochs = 100
 for time in range(maxIter + 1):
+    # Compute macroscopic variables
     rho, u = macroscopic(fin)
-    # Apply boundary condition
     u[0, :, -1] = u0
+    # Compute equilibrium distribution
     feq = equilibrium(rho, u)
-
-    # Collision
     fout = fin - (fin - feq) / tau
+    fin_prev = fin.clone()
 
-    if time % 10 == 0:
+    # Streaming step
+    for i in range(9):
+        fin[i] = torch.roll(fout[i], shifts=(v[i, 0].item(), v[i, 1].item()), dims=(0, 1))
+        fin[i][solid_mask] = torch.roll(fout[opp[i].item()], shifts=(0, 0), dims=(0, 1))[solid_mask]
+        fin[i][:, -1] = torch.roll(fout[opp[i].item()], shifts=(0, 0), dims=(0, 1))[:, -1] \
+                       - 6 * rho0 * t[opp[i].item()] * v[opp[i].item(), 0].float() * u0
+
+    fin_tensor = fin_prev.reshape(-1, 9)
+    
+    if time % training_step == 0:
         for epoch in range(epochs):
-            fin_tensor = fin.reshape(-1, 9).clone().detach().requires_grad_(True)
-            fout_hat = model(fin_tensor)
-            fout_tensor = fout.reshape(-1, 9).clone().detach()
-            loss = torch.mean((fout_hat - fout_tensor)**2)
 
+            fout_hat = model(fin_tensor.reshape(-1, 9)).view_as(fin)
+            fout_tensor = fout.reshape(-1, 9).detach()
+
+            # Compute physics-informed loss
+            loss = boltzmann_loss(fout_hat, fin_prev, feq, v, tau) + torch.mean((fout_hat.view(-1, 9) - fout_tensor) ** 2)
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-    scheduler.step()
+        
+        scheduler.step()
 
-    # Streaming
-    for i in range(9):
-        fin[i] = torch.roll(fout[i], shifts=(v[i, 0].item(), v[i, 1].item()), dims=(0, 1))
-        fin[i][solid_mask] = fout[opp[i].item()][solid_mask]
-        fin[i][:, -1] = fout[opp[i].item()][:, -1] - 6 * rho0 * t[opp[i].item()] * v[opp[i].item(), 0].float() * u0
-
-    if time % 10 == 0:
+    if time % 1000 == 0:
+        print(f'Iteration = {time}, Loss = {loss.item():.6f}')
+        _, u_nn = macroscopic(fout_hat)
+        u_nn[0, :, -1] = u0
+        u_nn_mag = torch.sqrt(u_nn[0]**2 + u_nn[1]**2) / u0
         u_mag = torch.sqrt(u[0]**2 + u[1]**2) / u0
 
-        fin_tensor = fin.reshape(-1, 9).clone().detach().requires_grad_(False)
-        fout_hat_plot = model(fin_tensor).view_as(fin).detach()
-        fin_hat_plot = torch.zeros_like(fin)
-        for i in range(9):
-            fin_hat_plot[i] = torch.roll(fout_hat_plot[i], shifts=(v[i, 0].item(), v[i, 1].item()), dims=(0, 1))
-            fin_hat_plot[i][solid_mask] = fout_hat_plot[opp[i].item()][solid_mask]
-            fin_hat_plot[i][:, -1] = fout_hat_plot[opp[i].item()][:, -1] - 6 * rho0 * t[opp[i].item()] * v[opp[i].item(), 0].float() * u0
-        _, u_nn = macroscopic(fin_hat_plot)
-        # u_nn[0, :, -1] = u0
-        u_nn_mag = torch.sqrt(u_nn[0]**2 + u_nn[1]**2) / u0
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        cf1 = axes[0].contourf(X.cpu().numpy(), Y.cpu().numpy(),
+                               u_nn_mag.cpu().detach().numpy(), cmap=cm.jet, levels=200)
+        fig.colorbar(cf1, ax=axes[0], label=r'$\frac{|u|_{GNN}}{u0}$')
+        axes[0].set_title('Online Collision Learner (NN)')
+        axes[0].set_xlabel('x')
+        axes[0].set_ylabel('y')
 
-        if time % 1000 == 0:
-            print(f'Iteration = {time}')
-            fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-            cf1 = axes[0].contourf(X.cpu().numpy(), Y.cpu().numpy(), u_nn_mag.cpu().numpy(), cmap=cm.jet, levels=200)
-            fig.colorbar(cf1, ax=axes[0], label=r'$\frac{|u|_{NN}}{u0}$')
-            axes[0].set_title('Online Collision Learner')
-            axes[0].set_xlabel('x')
-            axes[0].set_ylabel('y')
+        cf2 = axes[1].contourf(X.cpu().numpy(), Y.cpu().numpy(),
+                               u_mag.cpu().numpy(), cmap=cm.jet, levels=200)
+        fig.colorbar(cf2, ax=axes[1], label=r'$\frac{|u|}{u0}$')
+        axes[1].set_title('LBM')
+        axes[1].set_xlabel('x')
+        axes[1].set_ylabel('y')
 
-            cf2 = axes[1].contourf(X.cpu().numpy(), Y.cpu().numpy(), u_mag.cpu().numpy(), cmap=cm.jet, levels=200)
-            fig.colorbar(cf2, ax=axes[1], label=r'$\frac{|u|}{u0}$')
-            axes[1].set_title('LBM')
-            axes[1].set_xlabel('x')
-            axes[1].set_ylabel('y')
-
-            plt.suptitle(f'Iteration = {time}', fontsize=16)
-            plt.tight_layout(rect=[0, 0, 1, 0.95])
-            plt.show()
-
+        plt.suptitle(f'Iteration = {time}', fontsize=16)
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.show()
