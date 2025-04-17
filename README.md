@@ -15,28 +15,12 @@ An adaptive, physics-informed framework integrating online learning into the Lat
 
 ## 🔧 Installation
 
-1. **Clone the repository**
-   ```bash
+   ```
    git clone this is git repository:
    https://github.com/AlirezaSamari/Real-Time-LBM-Collision-Operator-Learning.git
    cd Physics-Informed-Real-Time-LBM-Collision-Operator-Learner
    ```
 
-2. **Create a virtual environment**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-
-## ▶️ Usage
-
-```bash
-python run_simulation.py --nx 100 --ny 100 --max_iter 50000 \
-    --train_interval 10 --epochs 100 --lr 1e-3
-```
-
-- **run_simulation.py**: Entry point that initializes the grid, neural network, and starts the real-time training loop.
 
 ## ⚙️ Implementation Details
 
@@ -93,5 +77,5 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 **Author:** Alireza Samari
 
-*Questions? Feel free to contact me via E-mail (alirexasamari@gmal.com).*
+*Questions? Feel free to contact me via E-mail (alirexasamari@gmail.com).*
 
